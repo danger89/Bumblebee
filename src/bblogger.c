@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, The Bumblebee Project
+ * Copyright (c) 2011-2013, The Bumblebee Project
  * Author: Joaquín Ignacio Aramendía samsagax@gmail.com
  *
  * This file is part of Bumblebee.
@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <time.h>
 #include "bblogger.h"
 #include "bbconfig.h"
 
@@ -93,6 +94,8 @@ void bb_log(int priority, char* msg_format, ...) {
     vsyslog(priority, msg_format, args);
   } else {
     char* fullmsg_fmt = malloc(BUFFER_SIZE + 8);
+    struct timespec tp;
+    clock_gettime(CLOCK_MONOTONIC, &tp);
     switch (priority) {
       case LOG_ERR:
         fullmsg_fmt = strcpy(fullmsg_fmt, "[ERROR]");
@@ -107,6 +110,7 @@ void bb_log(int priority, char* msg_format, ...) {
         fullmsg_fmt = strcpy(fullmsg_fmt, "[INFO]");
     }
     fullmsg_fmt = strncat(fullmsg_fmt, msg_format, BUFFER_SIZE);
+    fprintf(stderr, "[%5llu.%06lu] ", (long long)tp.tv_sec, tp.tv_nsec / 1000);
     vfprintf(stderr, fullmsg_fmt, args);
     free(fullmsg_fmt);
   }

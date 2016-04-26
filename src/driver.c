@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Bumblebee Project
+ * Copyright (c) 2011-2013, The Bumblebee Project
  * Author: Peter Lekensteyn <lekensteyn@gmail.com>
  *
  * This file is part of Bumblebee.
@@ -65,7 +65,7 @@ void driver_detect(void) {
     }
   }
 
-  if (strcmp(bb_config.driver, "nvidia")) {
+  if (strcmp(bb_config.driver, "nvidia") == 0) {
     set_string_value(&bb_config.ld_path, CONF_LDPATH_NVIDIA);
     set_string_value(&bb_config.mod_path, CONF_MODPATH_NVIDIA);
   }

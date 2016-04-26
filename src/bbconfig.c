@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, The Bumblebee Project
+ * Copyright (c) 2011-2013, The Bumblebee Project
  * Author: Joaquín Ignacio Aramendía samsagax@gmail.com
  * Author: Jaron Viëtor AKA "Thulinma" <jaron@vietors.com>
  *
@@ -103,12 +103,12 @@ void set_string_value(char ** configstring, char * newvalue) {
  * @param value The string to be converted
  * @return An index in the PM methods array
  */
-static enum bb_pm_method bb_pm_method_from_string(char *value) {
+enum bb_pm_method bb_pm_method_from_string(char *value) {
   /* loop backwards through all possible values. If no valid value is found,
    * assume the first element ("none") */
   enum bb_pm_method method_index = PM_METHODS_COUNT;
-  while (method_index-- > 0) {
-    if (strcmp(value, bb_pm_method_string[method_index]) == 0) {
+  while (method_index > 0) {
+    if (strcmp(value, bb_pm_method_string[--method_index]) == 0) {
       break;
     }
   }
@@ -144,24 +144,36 @@ void print_usage(int exit_val) {
   if (is_optirun) {
     //client-only options
     fputs("\
+      --failsafe      run a program even if the nvidia card is unavailable\n\
+      --no-failsafe   do not run a program if the nvidia card is unavailable\n\
+      --no-xorg       do not start secondary X server (implies -b none)\n\
+  -b, --bridge METHOD  acceleration/displaying bridge to use. Valid values\n\
+                       are auto, virtualgl and primus. The --vgl-* options\n\
+                       only make sense when using the virtualgl bridge,\n\
+                       while the --primus-* options apply only when using\n\
+                       the primus bridge.\n\
+		       Additionally, value none is recognized, and its effect\n\
+		       is to add paths to driver libraries to LD_LIBRARY_PATH\n\
+		       (useful for nvidia-settings and CUDA applications)\n\
   -c, --vgl-compress METHOD  image compression or transport to use with \n\
                                VirtualGL. Valid values for METHOD are proxy,\n\
                                jpeg, rgb, xv and yuv. Changing this setting\n\
                                may affect performance, CPU usage and image\n\
                                quality\n\
-      --failsafe      run a program even if the nvidia card is unavailable\n\
-      --no-failsafe   do not run a program if the nvidia card is unavailable\n\
       --vgl-options OPTS   a space-separated list of command options to be\n\
                              passed to vglrun. Useful for debugging virtualgl\n\
                              by passing options to it like +tr. These OPTS\n\
                              override the settings from optirun so be careful\n\
-                             with setting it\n",
+                             with setting it\n\
+      --primus-ldpath PATH  a colon-separated list of paths which are searched\n\
+                            for the primus libGL.so.1\n",
             out);
   } else {
     //server-only options
     fputs("\
   -D, --daemon          run daemonized (backgrounded). Implies --use-syslog\n\
   -x, --xconf FILE      xorg.conf file to use\n\
+      --xconfdir DIR    xorg.conf.d directory to use\n\
   -g, --group GROUP     allow GROUP to communicate with the daemon\n\
       --driver DRIVER   the driver to use for the nvidia card. Valid values\n\
                           are nouveau and nvidia. This option also effects\n\
@@ -169,10 +181,21 @@ void print_usage(int exit_val) {
                           configuration file\n\
   -m, --module-path PATH  ModulePath to use for Xorg (only useful for nvidia)\n\
   -k, --driver-module NAME    Name of kernel module to be loaded if different\n\
-                                from the driver\n", out);
+                                from the driver\n\
+      --pm-method METHOD  method to use for disabling the discrete video card,\n\
+                            valid values are auto, bbswitch, switcheroo and\n\
+                            none. auto selects a sensible method,\n\
+                            bbswitch (kernel module) is available for nvidia\n\
+                            and nouveau drivers,\n\
+                            switcheroo (vga_switcheroo) is usually for\n\
+			    nouveau and radeon drivers and none disables PM\n\
+			    completely\n",
+            out);
 #ifdef WITH_PIDFILE
     fputs("\
-      --pidfile         file in which the process ID is written\n\
+      --pidfile FILE    file in which the process ID is written. An empty\n\
+                          value disables cretion of a pidfile. Note that\n\
+                          the file must not already exist\n\
       --use-syslog      redirect all messages to syslog\n", out);
 #endif
   }
@@ -184,14 +207,21 @@ void print_usage(int exit_val) {
                             --quiet is used)\n\
       --debug             show all logging messsages by setting the verbosity\n\
                             level to the maximum\n\
-  -d, --display DISPLAY   the X display number to use\n\
   -C, --config FILE       retrieve settings for Bumblebee from FILE\n", out);
   if (is_optirun) {
     fputs("\
+  -d, --display VDISPLAY  find the Bumblebee X server on VDISPLAY. Do not\n\
+                            confuse this option with the DISPLAY environment\n\
+                            variable. By default, PATH is queried from the\n\
+                            daemon\n\
   -l, --ldpath PATH       libraries like libGL.so are searched in PATH\n\
-                            (useful for the nvidia driver)\n", out);
+                            (useful for the nvidia driver). By default, PATH\n\
+                            is queried from the\n", out);
   } else {
     fputs("\
+  -d, --display VDISPLAY  start the Bumblebee X server on VDISPLAY. Do not\n\
+                            confuse this option with the DISPLAY environment\n\
+                            variable\n\
   -l, --ldpath PATH       libraries like nvidia_drv.so are searched in PATH\n\
                             (useful for the nvidia driver)\n", out);
   }
@@ -229,9 +259,6 @@ static int bbconfig_parse_common(int opt, char *value) {
       break;
     case 'd'://X display number
       set_string_value(&bb_config.x_display, value);
-      break;
-    case 's'://Unix socket to use
-      set_string_value(&bb_config.socket_path, value);
       break;
     case 'l'://LD driver path
       set_string_value(&bb_config.ld_path, value);
@@ -279,6 +306,9 @@ void bbconfig_parse_opts(int argc, char *argv[], int conf_round) {
           if (bb_status.verbosity < VERB_ALL) {
             bb_status.verbosity++;
           }
+          break;
+        case 's': /* Unix socket to use for communication */
+          set_string_value(&bb_config.socket_path, optarg);
           break;
         case 'V'://print version
           printf("%s (Bumblebee) %s\n",
@@ -344,6 +374,14 @@ GKeyFile *bbconfig_parse_conf(void) {
   // Client settings
   // [optirun]
   section = "optirun";
+  key = "Bridge";
+  if (g_key_file_has_key(bbcfg, section, key, NULL)) {
+    free_and_set_value(&bb_config.optirun_bridge, g_key_file_get_string(bbcfg, section, key, NULL));
+  }
+  key = "PrimusLibraryPath";
+  if (g_key_file_has_key(bbcfg, section, key, NULL)) {
+    free_and_set_value(&bb_config.primus_ld_path, g_key_file_get_string(bbcfg, section, key, NULL));
+  }
   key = "VGLTransport";
   if (g_key_file_has_key(bbcfg, section, key, NULL)) {
     free_and_set_value(&bb_config.vgl_compress, g_key_file_get_string(bbcfg, section, key, NULL));
@@ -383,6 +421,10 @@ GKeyFile *bbconfig_parse_conf(void) {
   if (g_key_file_has_key(bbcfg, section, key, NULL)) {
     bb_config.card_shutdown_state = !g_key_file_get_boolean(bbcfg, section, key, NULL);
   }
+  key = "XorgConfDir";
+  if (g_key_file_has_key(bbcfg, section, key, NULL)) {
+    free_and_set_value(&bb_config.x_conf_dir, g_key_file_get_string(bbcfg, section, key, NULL));
+  }
   return bbcfg;
 }
 
@@ -407,7 +449,14 @@ void bbconfig_parse_conf_driver(GKeyFile *bbcfg, char *driver) {
 
   key = "KernelDriver";
   if (g_key_file_has_key(bbcfg, section, key, NULL)) {
-    free_and_set_value(&bb_config.module_name, g_key_file_get_string(bbcfg, section, key, NULL));
+    char *module_name = g_key_file_get_string(bbcfg, section, key, NULL);
+    /* if KernelDriver is empty, the default behavior is to copy Driver which
+     * is done in driver_detect() */
+    if (*module_name) {
+      free_and_set_value(&bb_config.module_name, module_name);
+    } else {
+      g_free(module_name);
+    }
   }
   key = "LibraryPath";
   if (g_key_file_has_key(bbcfg, section, key, NULL)) {
@@ -436,11 +485,10 @@ void bbconfig_parse_conf_driver(GKeyFile *bbcfg, char *driver) {
 
 /**
  * Set options that must be set before opening logs or loading configuration
- * @param argc Arguments count
  * @param argv Argument values
  * @param runmode The running mode of the program
  */
-void init_early_config(int argc, char **argv, int runmode) {
+void init_early_config(char **argv, int runmode) {
   /* clear existing configuration and reset pointers */
   memset(&bb_status, 0, sizeof bb_status);
   set_string_value(&bb_status.errors, ""); //we start without errors, yay!
@@ -456,10 +504,8 @@ void init_early_config(int argc, char **argv, int runmode) {
 
 /**
  * Parse configuration file and command line arguments
- * @param argc Arguments count
- * @param argv Argument values
  */
-void init_config(int argc, char **argv) {
+void init_config(void) {
   /* clear pointers and settings */
   memset(&bb_config, 0, sizeof bb_config);
   /* set defaults if not set already */
@@ -470,6 +516,9 @@ void init_config(int argc, char **argv) {
   set_string_value(&bb_config.socket_path, CONF_SOCKPATH);
   set_string_value(&bb_config.gid_name, CONF_GID);
   set_string_value(&bb_config.x_conf_file, CONF_XORG);
+  set_string_value(&bb_config.x_conf_dir, CONF_XORG_DIR);
+  set_string_value(&bb_config.optirun_bridge, CONF_BRIDGE);
+  set_string_value(&bb_config.primus_ld_path, CONF_PRIMUS_LD_PATH);
   set_string_value(&bb_config.vgl_compress, CONF_VGLCOMPRESS);
   // default to auto-detect
   set_string_value(&bb_config.driver, "");
@@ -500,6 +549,7 @@ void config_dump(void) {
     bb_log(LOG_DEBUG, " pidfile: %s\n", bb_config.pid_file);
 #endif
     bb_log(LOG_DEBUG, " xorg.conf file: %s\n", bb_config.x_conf_file);
+    bb_log(LOG_DEBUG, " xorg.conf.d dir: %s\n", bb_config.x_conf_dir);
     bb_log(LOG_DEBUG, " ModulePath: %s\n", bb_config.mod_path);
     bb_log(LOG_DEBUG, " GID name: %s\n", bb_config.gid_name);
     bb_log(LOG_DEBUG, " Power method: %s\n",
@@ -511,7 +561,10 @@ void config_dump(void) {
             bb_config.card_shutdown_state);
   } else {
     /* client options */
+    bb_log(LOG_DEBUG, " Accel/display bridge: %s\n", bb_config.optirun_bridge);
     bb_log(LOG_DEBUG, " VGL Compression: %s\n", bb_config.vgl_compress);
+    bb_log(LOG_DEBUG, " VGLrun extra options: %s\n", bb_config.vglrun_options ? bb_config.vglrun_options : "");
+    bb_log(LOG_DEBUG, " Primus LD Path: %s\n", bb_config.primus_ld_path);
   }
 }
 
